@@ -1,0 +1,41 @@
+name: 'Rollback Action'
+description: 'Creates a rollback branch and tag based on the previous release tag'
+
+inputs:
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Get previous tag
+      uses: neal2034/useful-git-actions/.github/actions/previous-tag@main
+      id: tag
+
+    - name: Create rollback branch and tag
+      shell: bash
+      run: |
+        git checkout ${{ steps.tag.outputs.tag }}
+        git checkout -b roll-${{ steps.tag.outputs.tag }}
+        git push origin roll-${{ steps.tag.outputs.tag }}
+        echo "TAG_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: Create tag
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          github.rest.git.createRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: 'refs/tags/rollback-${{ steps.tag.outputs.tag }}',
+            sha: process.env.TAG_SHA,
+          })
