@@ -1,0 +1,171 @@
+name: Clean Branches
+
+on:
+  workflow_call:     
+
+jobs:
+  clean_up_branches:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write # 给予写入内容的权限
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh
+
+      - name: clean up branches
+        id: clean_up_branches
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # 工作流程说明：
+          # 1. 获取 main 分支最新的 commit ID
+          # 2. 获取最近 7 天内合并到 main 和 dev 分支的 PR 信息
+          # 3. 获取 main 和 dev 分支所有合并 PR 的 commit IDs
+          # 4. 遍历所有远程分支，对非受保护分支进行检查：
+          #    - 检查分支是否有最近 7 天内合并到 main 或 dev 的 PR
+          #    - 获取该分支最新的 commit ID
+          #    - 检查该 commit ID 是否在 dev 分支的 commit IDs 中
+          #      - 如果在，删除该分支
+          #      - 如果不在，进一步检查 main 分支最新 commit ID 是否在 dev 分支的 commit IDs 中
+          #        - 如果是，再检查该分支最新 commit ID 是否在 main 分支的 commit IDs 中
+          #          - 如果是，删除该分支
+          #
+          # 这个工作流的主要目的是清理那些已经合并到 main 或 dev 分支的功能分支。
+          # 它通过比较 commit IDs 来确定分支是否已经被合并，从而决定是否删除该分支。
+          # 这有助于保持仓库的整洁，减少不必要的分支。
+
+          # 确保我们有最新的远程信息
+          git fetch --all --prune
+
+          # 定义不能删除的分支
+          protected_branches="main master dev"
+
+          # 获取main分支最新的commitId
+          main_latest_commit_id=$(git rev-parse origin/main)
+          echo "main_latest_commit_id=$main_latest_commit_id"
+
+          # 获取当前日期和7天前的日期
+          current_date=$(date +%Y-%m-%d)
+          seven_days_ago=$(date -d "-7 days" +%Y-%m-%d)
+          # 获取main 分支的pr的来源分支名称 
+          main_prs_ref_name=$(gh pr list --state merged --base main --search "merged:>=$seven_days_ago" --json headRefName)
+          main_headRefName=$(echo "$main_prs_ref_name" | jq -r '.[].headRefName')
+          readarray -t main_headRefName_array <<< "$main_headRefName"
+          echo "main_headRefName_array=$main_headRefName_array"
+
+          # 获取dev分支的pr的来源分支名称 
+          dev_prs_ref_name=$(gh pr list --state merged --base dev --search "merged:>=$seven_days_ago" --json headRefName)
+          dev_headRefName=$(echo "$dev_prs_ref_name" | jq -r '.[].headRefName')
+          readarray -t dev_headRefName_array <<< "$dev_headRefName"
+          echo "dev_headRefName_array=$dev_headRefName_array"
+
+          # 获取main分支的所有合并PR信息
+          prs=$(gh pr list --state merged --base main --json commits)
+          echo "PR information for branch: main"
+
+
+          # 提取每个PR中的commit id
+          main_commit_ids=$(echo "$prs" | jq -r '.[].commits[].oid')
+          readarray -t main_commit_id_array <<< "$main_commit_ids"
+          echo "main_commit_ids=$main_commit_ids"
+
+          # 获取dev分支的所有合并PR信息
+          dev_prs=$(gh pr list --state merged --base dev --json commits)
+          echo "PR information for branch: dev"
+
+
+          # 提取每个PR中的commit id
+          dev_commit_ids=$(echo "$dev_prs" | jq -r '.[].commits[].oid')
+          readarray -t dev_commit_id_array <<< "$dev_commit_ids"
+          echo "dev_commit_ids=$dev_commit_ids"
+
+              
+          echo "检查每个分支的合并状态："
+          for branch in $(git branch -r | grep -v 'origin/HEAD' | sed 's/origin\///'); do
+            if [[ ! " ${protected_branches} " =~ " ${branch} " ]]; then
+              echo "检查分支: $branch"
+
+              dev_ref_name_found=false
+              for ref_name in "${dev_headRefName_array[@]}"; do
+                if [[ "$ref_name" == "$branch" ]]; then
+                  dev_ref_name_found=true
+                  break
+                fi
+              done
+              
+
+              
+              main_ref_name_found=false
+              for ref_name in "${main_headRefName_array[@]}"; do
+                if [[ "$ref_name" == "$branch" ]]; then
+                  main_ref_name_found=true
+                  break
+                fi
+              done
+              if [ "$main_ref_name_found" = false ] && [ "$dev_ref_name_found" = false ]; then
+                echo "$branch 在main分支和dev分支都没有pr记录"
+                continue
+              fi
+              
+              
+              
+              # 获取branch最新的commitId
+              latest_commit_id=$(git rev-parse origin/$branch)
+
+              
+              
+
+              # 检查 latest_commit_id 是否在 dev_commit_id_array 中
+              dev_commit_found=false
+              for commit_id in "${dev_commit_id_array[@]}"; do
+                if [[ "$commit_id" == "$latest_commit_id" ]]; then
+                  dev_commit_found=true
+                  break
+                fi
+              done
+
+              if [ "$dev_commit_found" = true ]; then
+                echo "Latest commit ID is in the list of dev commit IDs."
+                git push origin --delete "$branch"
+                echo "已删除分支: $branch"
+              else
+                # 检查 main_latest_commit_id 是否在 dev_commit_id_array 中
+                main_commit_found=false
+                for commit_id in "${dev_commit_id_array[@]}"; do
+                  if [[ "$commit_id" == "$main_latest_commit_id" ]]; then
+                    main_commit_found=true
+                    break
+                  fi
+                done
+
+                if [ "$main_commit_found" = true ]; then
+                  echo "main latest commit ID $main_latest_commit_id is in dev commit IDs"
+                  commit_found=false
+                  for commit_id in "${main_commit_id_array[@]}"; do
+                    if [[ "$commit_id" == "$latest_commit_id" ]]; then
+                      commit_found=true
+                      break
+                    fi
+                  done
+
+                  if [ "$commit_found" = true ]; then
+                    echo "Latest commit ID $latest_commit_id is in main commit IDs"
+                    git push origin --delete "$branch"
+                    echo "已删除分支: $branch"
+                  else
+                    echo "Latest commit ID $latest_commit_id is not in main commit IDs or dev commit IDs"
+                  fi
+                else
+                  echo "main latest commit ID $main_latest_commit_id is not in dev commit IDs"
+                fi
+              fi
+            fi
+          done
