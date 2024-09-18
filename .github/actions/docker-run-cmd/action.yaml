@@ -8,6 +8,9 @@ inputs:
   image:
     required: true
     description: image
+  extra_args:
+    required: false
+    description: extra arguments
   envfile:
     required: false
     description: envfile
@@ -29,7 +32,7 @@ inputs:
   network:
     required: false
     description: network
-    default: phoenix
+    default: aio-network
 
 outputs:
   cmd:
@@ -49,6 +52,8 @@ runs:
         poststart="${{ inputs.post-start }}"
         restart="${{ inputs.restart }}"
         network="${{ inputs.network }}"
+        extra_args="${{ inputs.extra_args }}"
+
 
         cmd="docker pull ${{ inputs.image }}
         if ! docker image inspect ${{ inputs.image }} >/dev/null 2>&1; then
@@ -74,6 +79,10 @@ runs:
         fi
 
         cmd+=" --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3"
+
+        if [[ "$extra_args" != "" ]]; then
+          cmd+=" $extra_args"
+        fi
 
         if [[ "$port" != "" ]]; then
           cmd+=" -p $port"
