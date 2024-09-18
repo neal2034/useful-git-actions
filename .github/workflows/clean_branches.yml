@@ -1,10 +1,7 @@
 name: Clean Branches
 
 on:
-  workflow_call:
-    secrets:
-      PAT_TOKEN:
-        required: true
+  workflow_call:     
 
 jobs:
   clean_up_branches:
