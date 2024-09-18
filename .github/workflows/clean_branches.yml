@@ -23,7 +23,7 @@ jobs:
       - name: clean up branches
         id: clean_up_branches
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           # 工作流程说明：
           # 1. 获取 main 分支最新的 commit ID
