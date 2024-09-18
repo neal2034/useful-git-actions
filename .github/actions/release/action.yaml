@@ -18,7 +18,7 @@ runs:
     - uses: actions/checkout@v4
 
     - name: Next tag
-      uses: ./.github/actions/next-tag
+      uses: neal2034/useful-git-actions/.github/actions/next-tag@main
       id: tag
       with:
         semver: ${{ inputs.semver }}
