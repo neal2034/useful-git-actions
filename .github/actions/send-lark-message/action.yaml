@@ -1,0 +1,92 @@
+name: "Send Lark Message"
+description: "Send a message to Lark"
+inputs:
+  name:
+    description: "The name of the production"
+    required: true
+  status:
+    description: "The status of the build (success or failure)"
+    required: true
+  repository:
+    description: "The repository name"
+    required: false
+    default: ${{ github.repository }}
+  sha:
+    description: "The commit SHA"
+    required: false
+    default: ${{ github.sha }}
+  actor:
+    description: "The committer"
+    required: false
+    default: ${{ github.actor }}
+  ref:
+    description: "The branch name"
+    required: false
+    default: ${{ github.ref_name }}
+  message:
+    description: "The commit message"
+    required: false
+    default: ${{ github.event.head_commit.message }}
+  prefix:
+    description: "The prefix message"
+    required: false
+    default: "开发消息:"
+  webhook_url:
+    description: "The Lark Webhook URL"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - run: |
+        STATUS=${{inputs.status}}
+
+        TEMPLATE="red"
+        TITLE="Build Failed ❌"
+        NOTE="Build failed. Please check the logs."
+
+        if [ "$STATUS" = "success" ]; then
+          TEMPLATE="green"
+          TITLE="Build Success 🚀"
+          NOTE="Build passed successfully!"
+        fi
+
+        echo "{
+          \"msg_type\": \"interactive\",
+          \"card\": {
+            \"config\": {
+              \"wide_screen_mode\": true
+            },
+            \"header\": {
+              \"title\": {
+                \"tag\": \"plain_text\",
+                \"content\": \"${{inputs.name}} $TITLE\"
+              },
+              \"template\": \"$TEMPLATE\"
+            },
+            \"elements\": [
+              {
+                \"tag\": \"div\",
+                \"text\": {
+                  \"tag\": \"lark_md\",
+                  \"content\": \"**${{inputs.prefix}}**\n**Repository**: ${{ inputs.repository }}\n**Commit SHA**: ${{ inputs.sha }}
+                  \n**Committer**: ${{inputs.actor}}\n**Branch**: ${{ inputs.ref }}\n**Message**: ${{ inputs.message }}\"
+                }
+              },
+              {
+                \"tag\": \"hr\"
+              },
+              {
+                \"tag\": \"note\",
+                \"elements\": [
+                  {
+                    \"tag\": \"plain_text\",
+                    \"content\": \"$NOTE\"
+                  }
+                ]
+              }
+            ]
+          }
+        }" > build_info.json
+
+        curl -X POST -H 'Content-Type: application/json' -d @build_info.json ${{ inputs.webhook_url }}
+      shell: bash

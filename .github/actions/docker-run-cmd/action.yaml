@@ -1,0 +1,93 @@
+name: compose docker run command
+description: compose docker run command
+
+inputs:
+  name:
+    required: true
+    description: container name
+  image:
+    required: true
+    description: image
+  envfile:
+    required: false
+    description: envfile
+  volume:
+    required: false
+    description: volume
+  port:
+    required: false
+    description: port
+  entrypoint:
+    required: false
+    description: entrypoint
+  post-start:
+    required: false
+    description: post start
+  restart:
+    required: false
+    description: restart
+  network:
+    required: false
+    description: network
+    default: phoenix
+
+outputs:
+  cmd:
+    value: ${{ steps.out.outputs.cmd }}
+    description: image tag
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: out
+      run: |
+        envfile="${{ inputs.envfile }}"
+        volume="${{ inputs.volume }}"
+        port="${{ inputs.port }}"
+        entrypoint="${{ inputs.entrypoint }}"
+        poststart="${{ inputs.post-start }}"
+        restart="${{ inputs.restart }}"
+        network="${{ inputs.network }}"
+
+        cmd="docker pull ${{ inputs.image }}
+        if ! docker image inspect ${{ inputs.image }} >/dev/null 2>&1; then
+          exit 1
+        fi
+
+        docker stop ${{ inputs.name }} || true && docker rm ${{ inputs.name }} || true
+        sleep 2
+        docker run -d --network ${{ inputs.network }} --name ${{ inputs.name }}"
+
+        if [[ "$restart" != "" ]]; then
+          cmd+=" --restart $restart"
+        else
+          cmd+=" --restart unless-stopped"
+        fi
+
+        if [[ "$envfile" != "" ]]; then
+          cmd+=" --env-file $envfile"
+        fi
+
+        if [[ "$volume" != "" ]]; then
+          cmd+=" -v $volume"
+        fi
+
+        cmd+=" --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3"
+
+        if [[ "$port" != "" ]]; then
+          cmd+=" -p $port"
+        fi
+
+        if [[ "$entrypoint" != "" ]]; then
+          cmd+=" --entrypoint $entrypoint"
+        fi
+        cmd+=" ${{ inputs.image }}"
+
+
+        echo "cmd<<EOF" >> $GITHUB_OUTPUT
+        echo "$cmd" >> $GITHUB_OUTPUT
+        if [[ "$poststart" != "" ]]; then
+          echo "$poststart" >> $GITHUB_OUTPUT
+        fi
+        echo "EOF" >> $GITHUB_OUTPUT

@@ -1,0 +1,63 @@
+name: previous tag
+description: 获取上一个版本号
+
+outputs:
+  tag:
+    value: ${{ steps.out.outputs.tag }}
+    description: image tag
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare
+      uses: actions/github-script@v6
+      id: out
+      with:
+        script: |
+       
+          // 比较两个版本号
+          function compare(ver0, ver1) {
+            const v0 = ver0.split('.').map((v) => parseInt(v))
+            const v1 = ver1.split('.').map((v) => parseInt(v))
+            const len = Math.max(v0.length, v1.length)
+
+            for (let i = 0; i < len; i++) {
+              const a = v0[i] || 0
+              const b = v1[i] || 0
+
+              if (a > b) return 1
+              if (a < b) return -1
+            }
+
+            return 0
+          }
+
+          // 获取所有 tag
+          const refs = await github.rest.git.listMatchingRefs({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: 'tags/'
+          })
+
+          // 抽取 tag 的版本号，并排序，按照 semver 的顺序排序
+          const tags = refs.data
+            .filter((t) => t.ref.startsWith('refs/tags/v'))
+            .map((t) => t.ref.replace('refs/tags/v', ''))
+            .sort(compare)
+            .reverse()
+            .map((t) => t.split('.').map((v) => +v))
+
+          // 获取上一个版本号
+          if (tags.length < 2) {
+            throw new Error('No previous tag found')
+          }
+
+          // 将第二个版本号拼接为 tag
+          const tag = 'v' + tags[1].join('.')
+
+          // 输出 tag
+          core.setOutput('tag', tag)
+          
+
+          
+

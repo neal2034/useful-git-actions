@@ -1,0 +1,85 @@
+name: next tag
+description: 获取下一个版本号
+
+inputs:
+  semver:
+    required: true
+    description: major.minor.patch
+  sha:
+    required: false
+    description: Commit SHA
+
+outputs:
+  tag:
+    value: ${{ steps.out.outputs.tag }}
+    description: image tag
+  sha:
+    value: ${{ steps.out.outputs.sha }}
+    description: Commit SHA
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare
+      uses: actions/github-script@v6
+      id: out
+      with:
+        script: |
+          const semver = '${{ inputs.semver }}'
+          const sha = '${{ inputs.sha }}'
+           
+          // 验证输入的 semver 类型是否有效
+          const semverIdx = ['major', 'minor', 'patch'].indexOf(semver)
+          if (semverIdx === -1) {
+            throw new Error('Invalid semver')
+          }
+
+          // 比较两个版本号
+          function compare(ver0, ver1) {
+            const v0 = ver0.split('.').map((v) => parseInt(v))
+            const v1 = ver1.split('.').map((v) => parseInt(v))
+            const len = Math.max(v0.length, v1.length)
+
+            for (let i = 0; i < len; i++) {
+              const a = v0[i] || 0
+              const b = v1[i] || 0
+
+              if (a > b) return 1
+              if (a < b) return -1
+            }
+
+            return 0
+          }
+
+          // 获取所有 tag
+          const refs = await github.rest.git.listMatchingRefs({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: 'tags/'
+          })
+
+          // 抽取 tag 的版本号，并排序，按照 semver 的顺序排序
+          const tags = refs.data
+            .filter((t) => t.ref.startsWith('refs/tags/v'))
+            .map((t) => t.ref.replace('refs/tags/v', ''))
+            .sort(compare)
+            .reverse()
+            .map((t) => t.split('.').map((v) => +v))
+
+          let parts = tags.find(t => t.length === 3) || [0, 0, 0]
+
+          // 将 semver 对应的版本号 +1, 并将后面的版本号重置为 0
+          parts[semverIdx]++
+          for (let i = semverIdx + 1; i < 3; i++) {
+            parts[i] = 0
+          }
+
+          // 将版本号拼接为 tag
+          const tag = 'v' + parts.join('.')
+
+          // 输出 tag 和 sha
+          core.setOutput('tag', tag)
+          core.setOutput('sha', sha || context.sha)
+
+          
+
